@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Админ панель</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="header">
+  <h1>Админ панель</h1>
+  <button class="btn" onclick="logout()">Выйти</button>
+</header>
+
+<div class="container" style="padding:24px 40px;">
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="orders">Заказы</button>
+    <button class="tab-btn" data-tab="users">Пользователи</button>
+  </div>
+
+  <div class="panel active" id="ordersPanel">
+    <div id="ordersList"></div>
+  </div>
+
+  <div class="panel" id="usersPanel">
+    <div id="usersList"></div>
+  </div>
+
+</div>
+
+<script>
+const SERVER_URL = "https://ofd-backend-czgu.onrender.com";
+
+let adminToken = localStorage.getItem("adminToken");
+if (!adminToken) startAdminLogin();
+
+function startAdminLogin() {
+  fetch(SERVER_URL + "/api/admin/request-login", { method: "POST", headers: { "Content-Type": "application/json" } })
+  .then(r => r.json())
+  .then(async ({ nonce }) => {
+
+    alert("Подтвердите вход в Telegram");
+
+    let tries = 0;
+    const maxTries = 20;
+
+    while (tries < maxTries) {
+      const check = await fetch(SERVER_URL + "/api/admin/check?nonce=" + nonce).then(r => r.json());
+      if (check.verified) {
+        const tokenData = await fetch(SERVER_URL + "/api/admin/token?nonce=" + nonce).then(r => r.json());
+        adminToken = tokenData.token;
+        localStorage.setItem("adminToken", adminToken);
+        loadAdminData();
+        return;
+      }
+      await new Promise(r => setTimeout(r, 3000));
+      tries++;
+    }
+    alert("Вход не подтверждён");
+  });
+}
+
+function api(url, method="GET", data=null) {
+  return fetch(SERVER_URL + url, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + adminToken
+    },
+    body: data ? JSON.stringify(data) : null
+  }).then(r => r.json());
+}
+
+async function loadAdminData() {
+  loadOrders();
+  loadUsers();
+}
+
+async function loadOrders() {
+  const orders = await api("/api/admin/orders");
+  const box = document.getElementById("ordersList");
+  box.innerHTML = "";
+  orders.forEach(o => {
+    box.innerHTML += `
+    <div class="card">
+      <div class="card-title">Заказ №${o.number} — ${o.status}</div>
+      <div>Пользователь: <b>${o.userLogin}</b></div>
+      <div>Товар: ${o.items.map(i => `${i.title} × ${i.count}`).join(", ")}</div>
+      <div>Сумма: ${o.total} ₽</div>
+      <input placeholder="Ключ" id="key_${o.id}" value="${o.key || ""}" style="margin-top:8px;">
+      <button class="save-btn" onclick="fulfill('${o.id}')">Завершить</button>
+    </div>`;
+  });
+}
+
+async function fulfill(id) {
+  const key = document.getElementById("key_" + id).value;
+  await api("/api/admin/orders/" + id + "/fulfill", "POST", { key });
+  loadOrders();
+}
+
+async function loadUsers() {
+  const users = await api("/api/admin/users");
+  const box = document.getElementById("usersList");
+  box.innerHTML = "";
+  users.forEach(u => {
+    box.innerHTML += `
+    <div class="card">
+      <div class="card-title">${u.login}</div>
+      <div>${u.surname} ${u.name}</div>
+      <div>${u.email}</div>
+      <div>Регистрация: ${new Date(u.createdAt).toLocaleDateString()}</div>
+      <div>Заказов: ${u.orderCount}</div>
+      <div>Статус: ${u.banned ? "🚫 Заблокирован" : "✔ Активен"}</div>
+      <button class="btn-small" onclick="toggleBan('${u.id}')">
+        ${u.banned ? "Разблокировать" : "Заблокировать"}
+      </button>
+      <button class="btn-small" onclick="resetPass('${u.id}')">Сбросить пароль</button>
+      <button class="btn-small danger" onclick="deleteUser('${u.id}')">Удалить</button>
+    </div>`;
+  });
+}
+
+async function toggleBan(id) {
+  await api("/api/admin/users/" + id + "/ban", "POST");
+  loadUsers();
+}
+
+async function resetPass(id) {
+  const r = await api("/api/admin/users/" + id + "/password", "POST");
+  alert("Пароль сброшен\nНовый пароль: " + r.newPass);
+  loadUsers();
+}
+
+async function deleteUser(id) {
+  if (!confirm("Удалить пользователя?")) return;
+  await api("/api/admin/users/" + id, "DELETE");
+  loadUsers();
+}
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(btn.dataset.tab+"Panel").classList.add("active");
+  }
+});
+
+function logout() {
+  localStorage.removeItem("adminToken");
+  location.reload();
+}
+
+loadAdminData();
+</script>
+</body>
+</html>

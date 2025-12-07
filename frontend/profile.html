@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Профиль</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="header">
+    <h1 id="helloUser">Профиль</h1>
+    <button class="btn" onclick="logout()">Выйти</button>
+</header>
+
+<div class="container" style="padding:24px 40px;">
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="orders">Текущие заказы</button>
+        <button class="tab-btn" data-tab="history">История заказов</button>
+        <button class="tab-btn" data-tab="keys">Мои ключи</button>
+        <button class="tab-btn" data-tab="password">Сменить пароль</button>
+    </div>
+
+    <div class="panel active" id="ordersPanel">
+        <div id="ordersList" class="list"></div>
+    </div>
+
+    <div class="panel" id="historyPanel">
+        <div id="historyList" class="list"></div>
+    </div>
+
+    <div class="panel" id="keysPanel">
+        <div id="keysList" class="list"></div>
+    </div>
+
+    <div class="panel" id="passwordPanel">
+        <input id="oldPass" type="password" placeholder="Старый пароль">
+        <input id="newPass" type="password" placeholder="Новый пароль (мин. 4 символа)">
+        <button class="save-btn" onclick="changePassword()">Сохранить</button>
+        <div class="info" id="passMsg"></div>
+    </div>
+</div>
+
+<script>
+const SERVER_URL = "https://ofd-backend-czgu.onrender.com";
+
+let token = localStorage.getItem("token");
+if (!token) location.href = "index.html";
+
+function api(url, method="GET", data=null) {
+    return fetch(SERVER_URL + url, {
+        method,
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + token
+        },
+        body: data ? JSON.stringify(data) : null
+    }).then(r => r.json());
+}
+
+async function loadProfile() {
+    const me = await api("/api/me");
+    document.getElementById("helloUser").innerText = `Привет, ${me.name}! 👋`;
+    loadOrders();
+    loadHistory();
+    loadKeys();
+}
+
+async function loadOrders() {
+    const orders = await api("/api/orders");
+    renderOrders(orders, "ordersList");
+}
+
+async function loadHistory() {
+    const history = await api("/api/orders/history");
+    renderOrders(history, "historyList");
+}
+
+async function loadKeys() {
+    const keys = await api("/api/user/keys");
+    const box = document.getElementById("keysList");
+    box.innerHTML = keys.length === 0 ? "Пока нет ключей" : "";
+    keys.forEach(k => {
+        box.innerHTML += `
+        <div class="card">
+            <div class="card-title">Заказ №${k.orderNumber}</div>
+            <div>Товар: ${k.product}</div>
+            <div>Ключ: <b>${k.key}</b></div>
+            <div>Дата: ${new Date(k.createdAt).toLocaleDateString()}</div>
+        </div>`;
+    });
+}
+
+function renderOrders(list, id) {
+    const box = document.getElementById(id);
+    box.innerHTML = list.length === 0 ? "Нет заказов" : "";
+    list.forEach(o => {
+        box.innerHTML += `
+        <div class="card">
+            <div class="card-title">№${o.number} — ${o.status}</div>
+            <div>Сумма: ${o.total} ₽</div>
+            <div>Товар: ${o.items.map(i=>`${i.title} × ${i.count}`).join(", ")}</div>
+            <div>Дата: ${new Date(o.createdAt).toLocaleDateString()}</div>
+        </div>`;
+    });
+}
+
+async function changePassword() {
+    const msg = document.getElementById("passMsg");
+    const oldPass = document.getElementById("oldPass").value;
+    const newPass = document.getElementById("newPass").value;
+    const r = await api("/api/user/password", "POST", { oldPass, newPass });
+    msg.innerText = r.ok ? "Пароль обновлен ✔" : (r.error || "Ошибка");
+    msg.style.color = r.ok ? "#00ff80" : "red";
+}
+
+function logout() {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    location.href = "index.html";
+}
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.onclick = () => {
+        document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById(btn.dataset.tab+"Panel").classList.add("active");
+    }
+});
+
+loadProfile();
+</script>
+</body>
+</html>
